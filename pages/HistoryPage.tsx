@@ -1,8 +1,7 @@
-
 import React, { useMemo, useState, useEffect } from 'react';
 import { useTimeEntries, useSettings, useDailyLogs, useAbsences, getDailyTargetForDate, getLocalISOString } from '../services/dataService';
 import { GlassCard, GlassButton, GlassInput } from '../components/GlassCard';
-import { Trash2, FileDown, X, Edit2, Save, CalendarDays, Briefcase, Clock, ChevronLeft, ChevronRight, CheckCircle, Calendar, UserCheck, List, FileText, StickyNote, Coffee, Lock, Hourglass, Building2, Building, Warehouse, Car, Palmtree, Stethoscope, Ban, PartyPopper, TrendingDown, AlertTriangle } from 'lucide-react';
+import { Trash2, FileDown, X, Edit2, Save, CalendarDays, Briefcase, Clock, ChevronLeft, ChevronRight, CheckCircle, Calendar, UserCheck, List, FileText, StickyNote, Coffee, Lock, Hourglass, Building2, Building, Warehouse, Car, Palmtree, Stethoscope, Ban, PartyPopper, TrendingDown, AlertTriangle, Check } from 'lucide-react';
 import GlassDatePicker from '../components/GlassDatePicker';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -672,7 +671,7 @@ const HistoryPage: React.FC = () => {
         <div className="flex justify-between items-center">
             <h2 className="text-2xl font-bold text-white">Verlauf</h2>
              <button onClick={() => setShowPdfModal(true)} className="bg-white/10 p-2 rounded-lg text-white hover:bg-white/20 transition-colors flex items-center md:hidden">
-                <FileDown size={20} />
+                <Check size={20} />
             </button>
         </div>
 
@@ -694,7 +693,7 @@ const HistoryPage: React.FC = () => {
                 <button onClick={nextMonth} className="p-1.5 hover:bg-white/10 rounded text-white"><ChevronRight size={18} /></button>
             </div>
             <button onClick={() => setShowPdfModal(true)} className="hidden md:flex bg-gradient-to-r from-teal-500 to-emerald-600 p-2 px-4 rounded-lg text-white shadow-lg hover:scale-105 transition-transform items-center justify-center gap-2">
-                <FileDown size={20} /> <span className="text-sm font-medium">Exportieren</span>
+                <Check size={20} /> <span className="text-sm font-medium">Abgeben</span>
             </button>
         </div>
       </div>
@@ -995,7 +994,7 @@ const HistoryPage: React.FC = () => {
                         <div onClick={() => setActivePdfDatePicker('end')} className="flex items-center justify-between w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white cursor-pointer hover:bg-white/10"><span>{formatDateDisplay(endDate)}</span><Calendar size={18} className="text-white/50" /></div>
                     </div>
                     <div className="bg-white/5 rounded-lg p-3 space-y-3">
-                        <button onClick={generateProjectPDF} className="w-full flex items-center gap-3 p-3 rounded-lg bg-teal-600/20 border border-teal-500/30 hover:bg-teal-600/40 group"><FileText className="text-teal-300" size={20} /><div className="text-left"><div className="text-sm font-bold text-teal-100">Projekte Exportieren</div><div className="text-[10px] text-teal-200/60">Querformat • Mit Start/Ende</div></div></button>
+                        <button onClick={generateProjectPDF} className="w-full flex items-center gap-3 p-3 rounded-lg bg-teal-600/20 border border-teal-500/30 hover:bg-teal-600/40 group"><FileText className="text-teal-300" size={20} /><div className="text-left"><div className="text-sm font-bold text-teal-100">Projekte Exportieren</div><div className="text-[10px] text-teal-200/60">Querformat • Mit Start/Ende</div><div className="text-[10px] text-emerald-300 mt-0.5">Markiert Einträge als abgegeben</div></div></button>
                         <button onClick={generateAttendancePDF} className="w-full flex items-center gap-3 p-3 rounded-lg bg-blue-600/20 border border-blue-500/30 hover:bg-blue-600/40 group"><UserCheck className="text-blue-300" size={20} /><div className="text-left"><div className="text-sm font-bold text-blue-100">Anwesenheit Exportieren</div><div className="text-[10px] text-blue-200/60">Hochformat • Detailübersicht</div></div></button>
                         <button onClick={handleMarkSubmittedOnly} className="w-full flex items-center gap-3 p-3 rounded-lg bg-emerald-600/20 border border-emerald-500/30 hover:bg-emerald-600/40 group"><CheckCircle className="text-emerald-300" size={20} /><div className="text-left"><div className="text-sm font-bold text-emerald-100">Zeitraum abschließen</div><div className="text-[10px] text-emerald-200/60">Nur als "Abgegeben" markieren</div></div></button>
                     </div>
