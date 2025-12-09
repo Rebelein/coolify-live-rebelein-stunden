@@ -19,9 +19,9 @@ const GlassLayout: React.FC<GlassLayoutProps> = ({ children }) => {
       `}</style>
 
       {/* Dynamic Background Gradient Blobs */}
-      <div className="fixed top-[-10%] left-[-10%] w-[50%] h-[50%] bg-emerald-600/40 rounded-full blur-[120px] animate-pulse-slow" />
-      <div className="fixed bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-teal-600/40 rounded-full blur-[120px] animate-pulse-slow" style={{ animationDelay: '2s' }} />
-      <div className="fixed top-[20%] right-[20%] w-[40%] h-[40%] bg-cyan-600/30 rounded-full blur-[100px] animate-pulse-slow" style={{ animationDelay: '4s' }} />
+      <div className="fixed top-[-10%] left-[-10%] w-[50%] h-[50%] bg-emerald-600/40 rounded-full blur-[120px] animate-pulse-slow pointer-events-none" />
+      <div className="fixed bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-teal-600/40 rounded-full blur-[120px] animate-pulse-slow pointer-events-none" style={{ animationDelay: '2s' }} />
+      <div className="fixed top-[20%] right-[20%] w-[40%] h-[40%] bg-cyan-600/30 rounded-full blur-[100px] animate-pulse-slow pointer-events-none" style={{ animationDelay: '4s' }} />
 
       {/* 
          WINTER SPECIAL: Schneefall-Effekt 

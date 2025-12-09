@@ -40,6 +40,12 @@
         background: rgba(255, 255, 255, 0.2);
         border-radius: 10px;
       }
+
+      /* iOS PWA Fix: Ensure inputs are selectable */
+      input, textarea, select, /* button? */ [contenteditable] {
+        -webkit-user-select: text;
+        user-select: text;
+      }
     </style>
     <!-- CRITICAL: Capture install prompt early -->
     <script>
