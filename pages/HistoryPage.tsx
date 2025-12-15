@@ -560,7 +560,7 @@ const HistoryPage: React.FC = () => {
                                                         {entry.note && (
                                                             <div className="flex items-start gap-1 mt-1 mb-1">
                                                                 <StickyNote size={10} className="text-white/20 mt-0.5" />
-                                                                <p className="text-xs text-white/40 italic truncate">{entry.note}</p>
+                                                                <p className="text-xs text-white/40 italic">{entry.note}</p>
                                                             </div>
                                                         )}
 
