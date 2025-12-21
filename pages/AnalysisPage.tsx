@@ -787,7 +787,7 @@ const AnalysisPage: React.FC = () => {
                                             className={`h-12 md:h-14 rounded-lg border flex flex-col items-center justify-center relative ${getDayColor(item)} transition-transform hover:scale-105`}
                                         >
                                             <span className="font-bold text-sm leading-none">{item.day}</span>
-                                            {item.type === 'work' && (item as any).status !== 'overtime_reduction' && (item as any).hours > 0 && <span className="text-[10px] opacity-70 mt-1">{formatDuration((item as any).hours)}</span>}
+                                            {item.type === 'work' && (item as any).status !== 'overtime_reduction' && (item as any).hours > 0 && <span className="text-[10px] opacity-70 mt-1">{(item as any).hours.toFixed(2).replace('.', ',')}</span>}
                                             {item.type === 'work' && (item as any).status === 'overtime_reduction' && <div className="mt-1"><TrendingDown size={10} className="opacity-70" /></div>}
                                             {item.type === 'absence' && (
                                                 <div className="mt-1">
