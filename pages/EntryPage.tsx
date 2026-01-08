@@ -633,7 +633,6 @@ const EntryPage: React.FC = () => {
             case 'holiday': return <PartyPopper size={20} />;
             case 'unpaid': return <Ban size={20} />;
             case 'overtime_reduction': return <TrendingDown size={20} />;
-            case 'special_holiday': return <PartyPopper size={20} className="text-teal-300" />;
             default: return <Briefcase size={20} />;
         }
     };
