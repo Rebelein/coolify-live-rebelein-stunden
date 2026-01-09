@@ -566,6 +566,8 @@ export const generateMonthlyReportPdfBlob = (data: ExportData, startDate: string
         return 0;
     };
 
+    const absenceTypes = ['vacation', 'sick', 'holiday', 'special_holiday', 'sick_child', 'sick_pay', 'unpaid'];
+
     let curr = new Date(start);
     while (curr <= end) {
         const dateStr = getLocalISOString(curr);
@@ -583,7 +585,7 @@ export const generateMonthlyReportPdfBlob = (data: ExportData, startDate: string
 
         // Actuals: Projects + Credits
         // INCLUDE overtime_reduction to match App "Project Hours"
-        const dayEntries = entries.filter(e => e.date === dateStr && e.type !== 'break');
+        const dayEntries = entries.filter(e => e.date === dateStr && e.type !== 'break' && !absenceTypes.includes(e.type || ''));
         const dayHours = dayEntries.reduce((sum, e) => sum + e.hours, 0);
         const credits = calculateCredits(dateStr);
 
@@ -830,7 +832,7 @@ export const generateMonthlyReportPdfBlob = (data: ExportData, startDate: string
 
             if (isUnpaid) dTarget = 0;
 
-            const dEntries = data.historyEntries.filter(e => e.date === dStr && e.type !== 'break');
+            const dEntries = data.historyEntries.filter(e => e.date === dStr && e.type !== 'break' && !absenceTypes.includes(e.type || ''));
             const dHours = dEntries.reduce((s, e) => s + e.hours, 0);
             const dCredits = getHistoryCredits(dStr);
 

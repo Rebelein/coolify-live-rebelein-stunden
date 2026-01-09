@@ -233,7 +233,8 @@ const AnalysisPage: React.FC = () => {
             .filter(e => {
                 const d = new Date(e.date);
                 // INCLUDE OVERTIME REDUCTION for "Visual Progress" in month/year stats (treated as "done")
-                return d.getFullYear() === year && d.getMonth() === month && e.type !== 'break' && e.date >= effectiveStartDate;
+                const absenceTypes = ['vacation', 'sick', 'holiday', 'special_holiday', 'sick_child', 'sick_pay', 'unpaid'];
+                return d.getFullYear() === year && d.getMonth() === month && e.type !== 'break' && !absenceTypes.includes(e.type || '') && e.date >= effectiveStartDate;
             })
             .reduce((sum, e) => sum + e.hours, 0);
 
@@ -248,7 +249,11 @@ const AnalysisPage: React.FC = () => {
                 if (log.start_time && log.end_time) {
                     const st = new Date(`1970-01-01T${log.start_time}`).getTime();
                     const en = new Date(`1970-01-01T${log.end_time}`).getTime();
-                    return sum + Math.max(0, (en - st) / 3600000);
+
+                    // Subtract breaks
+                    const dayBreaks = entries.filter(e => e.date === log.date && e.type === 'break').reduce((sum, b) => sum + b.hours, 0);
+
+                    return sum + Math.max(0, ((en - st) / 3600000) - dayBreaks);
                 }
                 return sum;
             }, 0);
@@ -277,7 +282,8 @@ const AnalysisPage: React.FC = () => {
                 .filter(e => {
                     const d = new Date(e.date);
                     // INCLUDE OVERTIME REDUCTION for Year Progress (treated as "done")
-                    return d.getFullYear() === year && d.getMonth() === m && e.type !== 'break' && e.date >= effectiveStartDate;
+                    const absenceTypes = ['vacation', 'sick', 'holiday', 'special_holiday', 'sick_child', 'sick_pay', 'unpaid'];
+                    return d.getFullYear() === year && d.getMonth() === m && e.type !== 'break' && !absenceTypes.includes(e.type || '') && e.date >= effectiveStartDate;
                 })
                 .reduce((sum, e) => sum + e.hours, 0);
 
@@ -329,7 +335,8 @@ const AnalysisPage: React.FC = () => {
         // For Trend: Exclude overtime reduction so it reflects "Work Done".
         const projectHours = entries
             .filter(e => {
-                return e.date >= startStr && e.date <= limitDateStr && e.type !== 'break' && e.type !== 'overtime_reduction' && e.date >= effectiveStartDate;
+                const absenceTypes = ['vacation', 'sick', 'holiday', 'special_holiday', 'sick_child', 'sick_pay', 'unpaid'];
+                return e.date >= startStr && e.date <= limitDateStr && e.type !== 'break' && e.type !== 'overtime_reduction' && !absenceTypes.includes(e.type || '') && e.date >= effectiveStartDate;
             })
             .reduce((sum, e) => sum + e.hours, 0);
 
@@ -411,6 +418,7 @@ const AnalysisPage: React.FC = () => {
         const projectHours = entries
             .filter(e => {
                 // EXCLUDE overtime_reduction from "Actuals" so it reduces the balance
+                // ALSO exclude explicitly absence types if they were logged as entries
                 return e.date >= startStr &&
                     e.date <= cutoffDateStr &&
                     !['break', 'vacation', 'sick', 'holiday', 'unpaid', 'overtime_reduction', 'sick_child', 'sick_pay'].includes(e.type || '');
