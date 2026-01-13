@@ -245,6 +245,10 @@ export const useTimeEntries = (customUserId?: string) => {
       }
     }
 
+    // New: Auto-Confirm based on Target User Settings
+    // REMOVED: Entries should NOT be auto-submitted on creation. 
+    // Submitting is always a manual action. Verification logic moved to markAsSubmitted.
+
     const { error } = await supabase.from('time_entries').insert([{
       ...entry,
       user_id: targetUserId,
@@ -290,6 +294,9 @@ export const useTimeEntries = (customUserId?: string) => {
       }
     }
 
+    // New: Auto-Confirm based on Content Owner Settings
+    // REMOVED: Entries should NOT be auto-submitted on update.
+
     const { error } = await supabase
       .from('time_entries')
       .update({
@@ -325,16 +332,40 @@ export const useTimeEntries = (customUserId?: string) => {
   const markAsSubmitted = async (ids: string[]) => {
     if (ids.length === 0) return;
 
+    // Validate UUIDs to prevent 400 errors
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validIds = ids.filter(id => uuidRegex.test(id));
+    if (validIds.length === 0) return;
+
+    let autoConfirmUpdate = {};
+
+    // Check settings for the user owning these entries (assuming consistent user for batch)
+    // We use the first entry to identify the user.
+    const sampleEntry = entries.find(e => e.id === validIds[0]);
+    if (sampleEntry && sampleEntry.user_id) {
+      const { data: settings } = await supabase
+        .from('user_settings')
+        .select('require_confirmation')
+        .eq('user_id', sampleEntry.user_id)
+        .single();
+
+      if (settings && settings.require_confirmation === false) {
+        autoConfirmUpdate = {
+          confirmed_at: new Date().toISOString()
+        };
+      }
+    }
+
     const { error } = await supabase
       .from('time_entries')
-      .update({ submitted: true })
-      .in('id', ids);
+      .update({ submitted: true, ...autoConfirmUpdate })
+      .in('id', validIds);
 
     if (error) {
       console.error("Error marking as submitted:", error.message || JSON.stringify(error));
     } else {
       setEntries(current =>
-        current.map(e => ids.includes(e.id) ? { ...e, submitted: true } : e)
+        current.map(e => validIds.includes(e.id) ? { ...e, submitted: true, ...autoConfirmUpdate } : e)
       );
     }
   }
@@ -501,7 +532,9 @@ export const useSettings = () => {
         preferences: data.preferences || DEFAULT_SETTINGS.preferences,
         vacation_days_yearly: data.vacation_days_yearly || DEFAULT_SETTINGS.vacation_days_yearly,
         employment_start_date: data.employment_start_date || undefined,
-        initial_overtime_balance: data.initial_overtime_balance || 0
+        initial_overtime_balance: data.initial_overtime_balance || 0,
+        // Added required_confirmation handling
+        require_confirmation: data.require_confirmation !== undefined ? data.require_confirmation : DEFAULT_SETTINGS.require_confirmation
       });
     } else if (error && error.code === 'PGRST116') {
       const { error: insertError } = await supabase.from('user_settings').insert({
@@ -552,6 +585,8 @@ export const useSettings = () => {
         vacation_days_yearly: newSettings.vacation_days_yearly,
         employment_start_date: newSettings.employment_start_date,
         initial_overtime_balance: newSettings.initial_overtime_balance,
+        // Added required_confirmation to update
+        require_confirmation: newSettings.require_confirmation,
         updated_at: new Date().toISOString()
       });
 
@@ -801,11 +836,14 @@ export const useOfficeService = () => {
       .select('*')
       .order('display_name');
 
-    if (error) console.error("Fetch Users Error:", error.message || JSON.stringify(error));
-    else setUsers(data as UserSettings[]);
+    if (data) {
+      setUsers(data as UserSettings[]);
+    }
   }, []);
 
   useEffect(() => {
+    fetchAllUsers();
+    // Realtime not strictly needed for list, but good for updates
     const channel = supabase
       .channel('realtime_office_users')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'user_settings' }, () => {
@@ -816,8 +854,17 @@ export const useOfficeService = () => {
   }, [fetchAllUsers]);
 
   const updateOfficeUserSettings = async (userId: string, updates: Partial<UserSettings>) => {
-    await supabase.from('user_settings').update(updates).eq('user_id', userId);
-  }
+    const { error } = await supabase
+      .from('user_settings')
+      .update(updates)
+      .eq('user_id', userId);
+
+    if (error) {
+      alert("Fehler beim Aktualisieren: " + error.message);
+    } else {
+      await fetchAllUsers();
+    }
+  };
 
   return { users, fetchAllUsers, updateOfficeUserSettings };
 };

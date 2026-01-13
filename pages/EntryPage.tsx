@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTimeEntries, useSettings, useDailyLogs, useAbsences, useInstallers, usePeerReviews, getLocalISOString } from '../services/dataService';
 import { GlassCard, GlassInput, GlassButton } from '../components/GlassCard';
 import GlassDatePicker from '../components/GlassDatePicker';
-import { Clock, Briefcase, CalendarDays, Coffee, Plus, Trash2, ChevronDown, ChevronUp, ArrowRight, MessageSquareText, StickyNote, Building2, Warehouse, Car, Building, Palmtree, Stethoscope, PartyPopper, Ban, X, TrendingDown, Play, Square, AlertCircle, UserCheck, Check, UserPlus, RefreshCw, User, ArrowLeftRight, Baby, Coins } from 'lucide-react';
+import { Clock, Briefcase, CalendarDays, Coffee, Plus, Trash2, ChevronDown, ChevronUp, ArrowRight, MessageSquareText, StickyNote, Building2, Warehouse, Car, Building, Palmtree, Stethoscope, PartyPopper, Ban, X, TrendingDown, Play, Square, AlertCircle, UserCheck, Check, UserPlus, RefreshCw, User, ArrowLeftRight, Baby, Coins, PiggyBank, Siren, Percent } from 'lucide-react';
 import { TimeSegment } from '../types';
 
 // Zentrale Konfiguration für das Modal (Icons & Farben)
@@ -19,11 +19,12 @@ const ENTRY_TYPES_CONFIG = {
     unpaid: { label: 'Unbezahlt', icon: Ban, color: 'text-gray-300' },
     sick_child: { label: 'Kind krank', icon: Baby, color: 'text-rose-300' },
     sick_pay: { label: 'Krankengeld', icon: Coins, color: 'text-yellow-300' },
-    overtime_reduction: { label: 'Überstundenabbau', icon: TrendingDown, color: 'text-pink-300' }
+    overtime_reduction: { label: 'Gutstunden', icon: PiggyBank, color: 'text-pink-300' },
+    emergency_service: { label: 'Notdienst', icon: Siren, color: 'text-rose-500' }
 };
 
 type EntryType = keyof typeof ENTRY_TYPES_CONFIG;
-const ENTRY_TYPE_ORDER: EntryType[] = ['work', 'break', 'company', 'office', 'warehouse', 'car', 'vacation', 'sick', 'holiday', 'unpaid', 'sick_child', 'sick_pay', 'overtime_reduction'];
+const ENTRY_TYPE_ORDER: EntryType[] = ['work', 'break', 'company', 'office', 'warehouse', 'car', 'vacation', 'sick', 'holiday', 'unpaid', 'sick_child', 'sick_pay', 'overtime_reduction', 'emergency_service'];
 
 // --- Sub-Component for Debounced Note Input ---
 const DebouncedSegmentNote: React.FC<{
@@ -101,6 +102,7 @@ const EntryPage: React.FC = () => {
     const [rejectionReason, setRejectionReason] = useState('');
 
     const [entryType, setEntryType] = useState<EntryType>('work');
+    const [surcharge, setSurcharge] = useState<number>(0);
 
     // New fields for start/end logic
     const [projectStartTime, setProjectStartTime] = useState('');
@@ -176,7 +178,8 @@ const EntryPage: React.FC = () => {
             case 'unpaid': setClient('Unbezahlt'); break;
             case 'sick_child': setClient('Kind krank'); break;
             case 'sick_pay': setClient('Krankengeld'); break;
-            case 'overtime_reduction': setClient('Überstundenabbau'); break;
+            case 'overtime_reduction': setClient('Gutstunden'); break;
+            case 'emergency_service': setClient(''); break;
         }
 
         const isNextAbsence = ['vacation', 'sick', 'holiday', 'unpaid', 'sick_child', 'sick_pay'].includes(nextType);
@@ -195,6 +198,10 @@ const EntryPage: React.FC = () => {
             if (['vacation', 'sick', 'holiday', 'unpaid', 'sick_child', 'sick_pay'].includes(entryType)) {
                 setHours('');
             }
+        }
+
+        if (nextType !== 'emergency_service') {
+            setSurcharge(0);
         }
     };
 
@@ -526,6 +533,7 @@ const EntryPage: React.FC = () => {
         setNote('');
         setProjectEndTime('');
         setResponsibleUserId('');
+        setSurcharge(0);
         setIsSubmitting(false);
     };
 
@@ -544,7 +552,8 @@ const EntryPage: React.FC = () => {
             end_time: projectEndTime || undefined,
             note: note || undefined,
             type: entryType as any,
-            responsible_user_id: responsibleUserId || undefined
+            responsible_user_id: responsibleUserId || undefined,
+            surcharge: entryType === 'emergency_service' ? surcharge : undefined
         };
 
         // --- CHECK OVERLAP IF ADDING BREAK ---
@@ -617,6 +626,7 @@ const EntryPage: React.FC = () => {
             case 'holiday': return 'text-blue-300 border-blue-500/30 bg-blue-900/10';
             case 'unpaid': return 'text-gray-300 border-gray-500/30 bg-gray-800/30';
             case 'overtime_reduction': return 'text-pink-300 border-pink-500/30 bg-pink-900/10';
+            case 'emergency_service': return 'text-rose-300 border-rose-500/30 bg-rose-900/10';
             default: return 'text-emerald-300';
         }
     };
@@ -632,7 +642,8 @@ const EntryPage: React.FC = () => {
             case 'sick': return <Stethoscope size={20} />;
             case 'holiday': return <PartyPopper size={20} />;
             case 'unpaid': return <Ban size={20} />;
-            case 'overtime_reduction': return <TrendingDown size={20} />;
+            case 'overtime_reduction': return <PiggyBank size={20} />;
+            case 'emergency_service': return <Siren size={20} />;
             default: return <Briefcase size={20} />;
         }
     };
@@ -649,6 +660,7 @@ const EntryPage: React.FC = () => {
             case 'holiday': return '!bg-gradient-to-r !from-blue-500/80 !to-sky-600/80 !shadow-blue-900/20';
             case 'unpaid': return '!bg-gradient-to-r !from-gray-600/80 !to-slate-700/80 !shadow-gray-900/20';
             case 'overtime_reduction': return '!bg-gradient-to-r !from-pink-500/80 !to-rose-600/80 !shadow-pink-900/20';
+            case 'emergency_service': return '!bg-gradient-to-r !from-rose-600/80 !to-red-700/80 !shadow-red-900/30';
             default: return 'shadow-teal-900/20';
         }
     };
@@ -850,7 +862,7 @@ const EntryPage: React.FC = () => {
                                     value={client}
                                     onChange={(e) => setClient(e.target.value)}
                                     required
-                                    className={`h-12 md:h-14 md:text-lg pr-12 ${entryType !== 'work' ? 'text-white/90' : ''}`}
+                                    className={`h-12 md:h-14 md:text-lg pr-12 ${entryType !== 'work' && entryType !== 'emergency_service' ? 'text-white/90' : ''}`}
                                 />
 
                                 {/* Cycle Type Button with Long Press */}
@@ -951,6 +963,7 @@ const EntryPage: React.FC = () => {
                                     value={projectStartTime}
                                     onChange={(e) => handleStartTimeChange(e.target.value)}
                                     onBlur={handleStartTimeBlur}
+                                    disabled={['vacation', 'sick', 'holiday', 'unpaid', 'sick_child', 'sick_pay'].includes(entryType)}
                                     className="text-center font-mono"
                                 />
                             </div>
@@ -963,6 +976,7 @@ const EntryPage: React.FC = () => {
                                     value={projectEndTime}
                                     onChange={(e) => handleEndTimeChange(e.target.value)}
                                     onBlur={handleEndTimeBlur}
+                                    disabled={['vacation', 'sick', 'holiday', 'unpaid', 'sick_child', 'sick_pay'].includes(entryType)}
                                     className="text-center font-mono"
                                 />
                             </div>
@@ -995,12 +1009,43 @@ const EntryPage: React.FC = () => {
                                 placeholder="0.00"
                                 value={hours}
                                 onChange={(e) => handleHoursChange(e.target.value)}
-                                required={!['vacation', 'sick', 'holiday', 'unpaid'].includes(entryType)}
-                                className="text-3xl font-mono pl-4 h-16 tracking-widest"
+                                required={!['vacation', 'sick', 'holiday', 'unpaid', 'sick_child', 'sick_pay'].includes(entryType)}
+                                disabled={['vacation', 'sick', 'holiday', 'unpaid', 'sick_child', 'sick_pay'].includes(entryType)}
+                                className="text-3xl font-mono pl-4 h-16 tracking-widest disabled:opacity-30"
                             />
                             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 text-sm font-medium">Std</span>
                         </div>
                     </GlassCard>
+
+                    {/* SURCHARGE SELECTOR (ONLY FOR EMERGENCY SERVICE) */}
+                    {entryType === 'emergency_service' && (
+                        <GlassCard className="space-y-4 animate-in slide-in-from-top-2">
+                            <div className="flex items-center space-x-3 text-rose-300 mb-2">
+                                <Percent size={20} />
+                                <span className="font-semibold uppercase text-xs tracking-wider">Zuschlag</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3">
+                                {[25, 50, 100].map(val => (
+                                    <button
+                                        key={val}
+                                        type="button"
+                                        onClick={() => setSurcharge(val === surcharge ? 0 : val)}
+                                        className={`py-3 rounded-xl border font-mono font-bold text-lg transition-all ${surcharge === val
+                                            ? 'bg-rose-500 text-white border-rose-400 shadow-[0_0_15px_rgba(244,63,94,0.4)]'
+                                            : 'bg-white/5 text-white/40 border-white/10 hover:bg-white/10 hover:text-white'
+                                            }`}
+                                    >
+                                        {val}%
+                                    </button>
+                                ))}
+                            </div>
+                            {hours && surcharge > 0 && !isNaN(parseFloat(hours)) && (
+                                <div className="text-center text-xs text-rose-200/70 mt-2 font-mono">
+                                    {hours}h + {surcharge}% = <span className="text-rose-100 font-bold ml-1 text-base">{(parseFloat(hours.replace(',', '.')) * (1 + surcharge / 100)).toFixed(2)}h</span>
+                                </div>
+                            )}
+                        </GlassCard>
+                    )}
 
                     <div className="pt-2 md:pt-4">
                         <GlassButton
@@ -1008,7 +1053,7 @@ const EntryPage: React.FC = () => {
                             disabled={isSubmitting}
                             className={`h-14 md:h-16 text-lg shadow-xl font-bold tracking-wide ${getButtonGradient()}`}
                         >
-                            {isSubmitting ? 'Speichere...' : (entryType === 'break' ? 'Pause erfassen' : (entryType === 'overtime_reduction' ? 'Überstundenabbau buchen' : (['vacation', 'sick', 'holiday', 'unpaid'].includes(entryType) ? 'Abwesenheit eintragen' : (responsibleUserId ? 'Zeit zur Prüfung senden' : 'Zeit erfassen'))))}
+                            {isSubmitting ? 'Speichere...' : (entryType === 'break' ? 'Pause erfassen' : (entryType === 'overtime_reduction' ? 'Gutstunden buchen' : (entryType === 'emergency_service' ? 'Notdienst eintragen' : (['vacation', 'sick', 'holiday', 'unpaid'].includes(entryType) ? 'Abwesenheit eintragen' : (responsibleUserId ? 'Zeit zur Prüfung senden' : 'Zeit erfassen')))))}
                         </GlassButton>
                     </div>
                 </form>

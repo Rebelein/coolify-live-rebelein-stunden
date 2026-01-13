@@ -9,7 +9,8 @@ export interface TimeEntry {
   start_time?: string; // "HH:MM"
   end_time?: string;   // "HH:MM"
   note?: string;       // Projekt-Notiz
-  type?: 'work' | 'break' | 'company' | 'office' | 'warehouse' | 'car' | 'vacation' | 'sick' | 'holiday' | 'unpaid' | 'overtime_reduction' | 'sick_child' | 'sick_pay' | 'special_holiday'; // Erweitert um Abwesenheiten
+  type?: 'work' | 'break' | 'company' | 'office' | 'warehouse' | 'car' | 'vacation' | 'sick' | 'holiday' | 'unpaid' | 'overtime_reduction' | 'sick_child' | 'sick_pay' | 'special_holiday' | 'emergency_service'; // Erweitert um Abwesenheiten & Notdienst
+  surcharge?: number; // Zuschlag in % (25, 50, 100)
   created_at: string;
   submitted?: boolean;
   confirmed_by?: string; // ID des Bestätigers
@@ -74,6 +75,7 @@ export interface UserSettings {
   vacation_days_yearly?: number; // Neu
   employment_start_date?: string; // Neu: Eintrittsdatum (ISO YYYY-MM-DD)
   initial_overtime_balance?: number; // Neu: Startsaldo / Übertrag
+  require_confirmation?: boolean; // Neu: Bestätigungspflicht
 }
 
 export interface UserAbsence {
@@ -130,5 +132,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
     timeCardCollapsed: false
   },
   vacation_days_yearly: 30,
-  initial_overtime_balance: 0
+  initial_overtime_balance: 0,
+  require_confirmation: true
 };

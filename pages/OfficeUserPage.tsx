@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTimeEntries, useOfficeService, useDailyLogs, useAbsences, useVacationRequests, getDailyTargetForDate, getLocalISOString } from '../services/dataService';
 import { GlassCard, GlassButton, GlassInput } from '../components/GlassCard';
-import { ChevronLeft, ChevronRight, CheckCircle, Hourglass, Calendar, Briefcase, UserCheck, Clock, Edit2, Trash2, X, Save, Coffee, Building2, Building, Warehouse, Car, ShieldAlert, Stethoscope, Palmtree, Filter, ChevronDown, Plus, AlertTriangle, CalendarDays, Ban, CalendarHeart, Info, CalendarCheck, XCircle, Printer, FileDown, FileText, Table, TrendingUp, TrendingDown, Scale, Lock, Unlock, RotateCcw, MessageSquareText, StickyNote, Calculator } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CheckCircle, Hourglass, Calendar, Briefcase, UserCheck, Clock, Edit2, Trash2, X, Save, Coffee, Building2, Building, Warehouse, Car, ShieldAlert, Stethoscope, Palmtree, Filter, ChevronDown, Plus, AlertTriangle, CalendarDays, Ban, CalendarHeart, Info, CalendarCheck, XCircle, Printer, FileDown, FileText, Table, TrendingUp, TrendingDown, Scale, Lock, Unlock, RotateCcw, MessageSquareText, StickyNote, Calculator, Siren, Percent } from 'lucide-react';
 import { TimeEntry, UserAbsence, VacationRequest } from '../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -39,7 +39,7 @@ const OfficeUserPage: React.FC = () => {
     const [selectedDay, setSelectedDay] = useState<Date | null>(null);
     const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
     const [editForm, setEditForm] = useState({ date: '', client_name: '', hours: '', start_time: '', end_time: '', note: '' });
-    const [newEntryForm, setNewEntryForm] = useState({ client_name: '', hours: '', start_time: '', end_time: '', type: 'work' });
+    const [newEntryForm, setNewEntryForm] = useState({ client_name: '', hours: '', start_time: '', end_time: '', type: 'work', surcharge: 0 });
 
     // Unpaid Reason State in Modal
     const [unpaidReason, setUnpaidReason] = useState('');
@@ -55,6 +55,7 @@ const OfficeUserPage: React.FC = () => {
 
     // --- INITIAL OVERTIME BALANCE EDIT STATE ---
     const [initialBalanceEdit, setInitialBalanceEdit] = useState<number>(0);
+    const [workModelConfirmation, setWorkModelConfirmation] = useState(true);
 
     useEffect(() => {
         if (users.length === 0) fetchAllUsers();
@@ -69,6 +70,7 @@ const OfficeUserPage: React.FC = () => {
                 // Initialize form with current settings as default
                 setWorkModelTargets(u.target_hours || { 1: 8.5, 2: 8.5, 3: 8.5, 4: 8.5, 5: 4.5, 6: 0, 0: 0 });
                 setWorkModelConfig(u.work_config || { 1: "07:00", 2: "07:00", 3: "07:00", 4: "07:00", 5: "07:00", 6: "07:00", 0: "07:00" });
+                setWorkModelConfirmation(u.require_confirmation !== false);
             }
         }
     }, [users, userId]);
@@ -270,6 +272,65 @@ const OfficeUserPage: React.FC = () => {
         return total;
     }, [dailyLogs, entries, year, month]);
 
+    // --- MONTHLY BALANCE STATISTICS (Requested Feature) ---
+    const monthlyStats = useMemo(() => {
+        if (!currentUser) return { target: 0, actual: 0, diff: 0 };
+
+        const startOfMonth = new Date(year, month, 1);
+        const endOfMonth = new Date(year, month + 1, 0);
+
+        let totalTarget = 0;
+        let totalCredits = 0;
+        let projectHours = 0;
+
+        // Iterate days
+        let curr = new Date(startOfMonth);
+        while (curr <= endOfMonth) {
+            const dateStr = getLocalISOString(curr);
+            const dailyTarget = getDailyTargetForDate(dateStr, currentUser.target_hours || {});
+
+            // Check Absences
+            const absence = absences?.find(a => dateStr >= a.start_date && dateStr <= a.end_date);
+            const entryAbsence = entries.find(e => e.date === dateStr && ['vacation', 'sick', 'holiday', 'unpaid', 'sick_child', 'sick_pay'].includes(e.type || ''));
+
+            let isUnpaid = false;
+            let isPaidAbsence = false;
+
+            if (absence) {
+                if (absence.type === 'unpaid' || absence.type === 'sick_child' || absence.type === 'sick_pay') isUnpaid = true;
+                else isPaidAbsence = true;
+            } else if (entryAbsence) {
+                if (entryAbsence.type === 'unpaid' || entryAbsence.type === 'sick_child' || entryAbsence.type === 'sick_pay') isUnpaid = true;
+                else isPaidAbsence = true;
+            }
+
+            if (!isUnpaid) {
+                totalTarget += dailyTarget;
+                if (isPaidAbsence) {
+                    totalCredits += dailyTarget;
+                }
+            }
+            curr.setDate(curr.getDate() + 1);
+        }
+
+        // Sum Project Hours for this month
+        projectHours = entries
+            .filter(e => {
+                const [y, m] = e.date.split('-').map(Number);
+                return y === year && m === month + 1 &&
+                    !['break', 'vacation', 'sick', 'holiday', 'unpaid', 'overtime_reduction'].includes(e.type || '');
+            })
+            .reduce((sum, e) => sum + e.hours, 0);
+
+        const actualTotal = projectHours + totalCredits;
+
+        return {
+            target: totalTarget,
+            actual: actualTotal,
+            diff: actualTotal - totalTarget
+        };
+    }, [currentUser, year, month, entries, absences]);
+
     const effectiveVacationClaim = useMemo(() => {
         const base = vacationDaysEdit || 30;
         if (unpaidDaysInYear === 0) return base;
@@ -342,14 +403,16 @@ const OfficeUserPage: React.FC = () => {
 
         await updateOfficeUserSettings(userId, {
             target_hours: workModelTargets,
-            work_config: workModelConfig
+            work_config: workModelConfig,
+            require_confirmation: workModelConfirmation
         });
 
         if (currentUser) {
             setCurrentUser({
                 ...currentUser,
                 target_hours: workModelTargets,
-                work_config: workModelConfig
+                work_config: workModelConfig,
+                require_confirmation: workModelConfirmation
             });
         }
         setIsEditingWorkModel(false);
@@ -394,7 +457,7 @@ const OfficeUserPage: React.FC = () => {
         // Reset forms
         const dateStr = getLocalISOString(date);
         setEditForm({ date: dateStr, client_name: '', hours: '', start_time: '', end_time: '', note: '' });
-        setNewEntryForm({ client_name: '', hours: '', start_time: '', end_time: '', type: 'work' });
+        setNewEntryForm({ client_name: '', hours: '', start_time: '', end_time: '', type: 'work', surcharge: 0 });
         setUnpaidReason('');
     };
 
@@ -440,10 +503,11 @@ const OfficeUserPage: React.FC = () => {
             start_time: newEntryForm.start_time || undefined,
             end_time: newEntryForm.end_time || undefined,
             type: newEntryForm.type as any,
+            surcharge: (newEntryForm as any).surcharge || 0,
             submitted: true
         });
 
-        setNewEntryForm({ client_name: '', hours: '', start_time: '', end_time: '', type: 'work' });
+        setNewEntryForm({ client_name: '', hours: '', start_time: '', end_time: '', type: 'work', surcharge: 0 });
     };
 
     const handleSaveEntryEdit = async () => {
@@ -660,6 +724,27 @@ const OfficeUserPage: React.FC = () => {
                             })}
                         </div>
                     </div>
+
+                    {/* Confirmation Toggle */}
+                    <div className={`mt-3 pt-3 border-t border-white/10 flex items-center justify-between ${isEditingWorkModel ? 'opacity-100' : 'opacity-60'}`}>
+                        <div className="flex flex-col">
+                            <span className="text-xs font-bold text-white">Bestätigungspflicht</span>
+                            <span className="text-[10px] text-white/40">Muss Zeiten bestätigen lassen</span>
+                        </div>
+                        {isEditingWorkModel ? (
+                            <button
+                                onClick={() => setWorkModelConfirmation(!workModelConfirmation)}
+                                className={`w-10 h-6 rounded-full p-1 transition-all ${workModelConfirmation ? 'bg-blue-500 justify-end' : 'bg-white/10 justify-start'} flex items-center`}
+                            >
+                                <div className={`w-4 h-4 rounded-full bg-white shadow-sm`} />
+                            </button>
+                        ) : (
+                            <div className={`text-xs font-bold px-2 py-1 rounded ${workModelConfirmation ? 'bg-blue-500/20 text-blue-200' : 'bg-white/10 text-white/50'}`}>
+                                {workModelConfirmation ? 'Aktiv' : 'Inaktiv'}
+                            </div>
+                        )}
+                    </div>
+
                     {isEditingWorkModel && (
                         <div className="mt-2 text-[10px] text-orange-300 italic flex items-center gap-1">
                             <Unlock size={10} /> Bearbeitungsmodus aktiv
@@ -768,7 +853,39 @@ const OfficeUserPage: React.FC = () => {
                         </div>
                     </div>
                 </GlassCard>
-            </div>
+
+                {/* NEW: MONTHLY BALANCE TILE */}
+                <GlassCard className="bg-teal-900/10 border-teal-500/20 relative flex flex-col justify-between">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <Scale size={100} className="text-teal-300" />
+                    </div>
+                    <div>
+                        <div className="flex items-center gap-2 text-teal-400 font-bold uppercase text-xs tracking-wider mb-3">
+                            <Scale size={16} /> Monatsbilanz
+                        </div>
+                        <div className="flex items-baseline gap-2 mb-1">
+                            <span className={`text-4xl font-bold font-mono ${monthlyStats.diff >= 0 ? 'text-teal-300' : 'text-red-300'}`}>
+                                {monthlyStats.diff > 0 ? '+' : ''}{monthlyStats.diff.toFixed(2)}
+                            </span>
+                            <span className="text-sm text-white/40 font-bold">Std</span>
+                        </div>
+                        <div className={`text-xs font-bold flex items-center gap-1 ${monthlyStats.diff >= 0 ? 'text-teal-400/70' : 'text-red-400/70'}`}>
+                            {monthlyStats.diff >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                            Differenz (Soll/Ist)
+                        </div>
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-white/5 space-y-1">
+                        <div className="flex justify-between text-xs">
+                            <span className="text-white/50">Soll (Monat):</span>
+                            <span className="text-white font-mono">{monthlyStats.target.toFixed(2)} h</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                            <span className="text-white/50">Ist (inkl. Urlaub/Krank):</span>
+                            <span className="text-white font-mono">{monthlyStats.actual.toFixed(2)} h</span>
+                        </div>
+                    </div>
+                </GlassCard>
+            </div >
 
             <div className="mb-4 flex justify-between items-center bg-white/5 p-2 rounded-xl">
                 <div className="flex items-center gap-2">
@@ -824,206 +941,242 @@ const OfficeUserPage: React.FC = () => {
             </div>
 
             {/* MODAL: Calendar Day Detail (RESTORED) */}
-            {selectedDay && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-                    <GlassCard className="w-full max-w-lg max-h-[90vh] overflow-y-auto relative shadow-2xl border-white/20">
-                        <button onClick={() => setSelectedDay(null)} className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"><X size={20} /></button>
-                        <div className="mb-6">
-                            <h3 className="text-2xl font-bold text-white">{selectedDay.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long' })}</h3>
-                            <p className="text-white/40 text-sm">Tagesdetails bearbeiten</p>
-                        </div>
+            {
+                selectedDay && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+                        <GlassCard className="w-full max-w-lg max-h-[90vh] overflow-y-auto relative shadow-2xl border-white/20">
+                            <button onClick={() => setSelectedDay(null)} className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"><X size={20} /></button>
+                            <div className="mb-6">
+                                <h3 className="text-2xl font-bold text-white">{selectedDay.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long' })}</h3>
+                                <p className="text-white/40 text-sm">Tagesdetails bearbeiten</p>
+                            </div>
 
-                        {currentAbsence ? (
-                            <div className="mb-8">
-                                <div className={`rounded-xl border p-4 flex flex-col gap-2 ${currentAbsence.type === 'vacation' ? 'bg-purple-900/20 border-purple-500/30' :
-                                    currentAbsence.type === 'sick' ? 'bg-red-900/20 border-red-500/30' :
-                                        currentAbsence.type === 'holiday' ? 'bg-blue-900/20 border-blue-500/30' :
-                                            currentAbsence.type === 'sick_child' ? 'bg-orange-900/20 border-orange-500/30' :
-                                                currentAbsence.type === 'sick_pay' ? 'bg-rose-900/20 border-rose-500/30' :
-                                                    'bg-gray-800/40 border-gray-500/30'
-                                    }`}>
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            {currentAbsence.type === 'vacation' ? <Palmtree size={24} className="text-purple-300" /> :
-                                                currentAbsence.type === 'sick' ? <Stethoscope size={24} className="text-red-300" /> :
-                                                    currentAbsence.type === 'holiday' ? <CalendarHeart size={24} className="text-blue-300" /> :
-                                                        currentAbsence.type === 'sick_child' ? <UserCheck size={24} className="text-orange-300" /> :
-                                                            currentAbsence.type === 'sick_pay' ? <Stethoscope size={24} className="text-rose-300" /> :
-                                                                <Ban size={24} className="text-gray-300" />}
-                                            <div>
-                                                <h4 className={`font-bold ${currentAbsence.type === 'vacation' ? 'text-purple-100' :
-                                                    currentAbsence.type === 'sick' ? 'text-red-100' :
-                                                        currentAbsence.type === 'holiday' ? 'text-blue-100' :
-                                                            currentAbsence.type === 'sick_child' ? 'text-orange-100' :
-                                                                currentAbsence.type === 'sick_pay' ? 'text-rose-100' :
-                                                                    'text-gray-100'
-                                                    }`}>
-                                                    {currentAbsence.type === 'vacation' ? 'Urlaub' :
-                                                        currentAbsence.type === 'sick' ? 'Krank' :
-                                                            currentAbsence.type === 'holiday' ? 'Feiertag' :
-                                                                currentAbsence.type === 'sick_child' ? 'Kind krank' :
-                                                                    currentAbsence.type === 'sick_pay' ? 'Krankengeld' :
-                                                                        'Unbezahlt'}
-                                                </h4>
+                            {currentAbsence ? (
+                                <div className="mb-8">
+                                    <div className={`rounded-xl border p-4 flex flex-col gap-2 ${currentAbsence.type === 'vacation' ? 'bg-purple-900/20 border-purple-500/30' :
+                                        currentAbsence.type === 'sick' ? 'bg-red-900/20 border-red-500/30' :
+                                            currentAbsence.type === 'holiday' ? 'bg-blue-900/20 border-blue-500/30' :
+                                                currentAbsence.type === 'sick_child' ? 'bg-orange-900/20 border-orange-500/30' :
+                                                    currentAbsence.type === 'sick_pay' ? 'bg-rose-900/20 border-rose-500/30' :
+                                                        'bg-gray-800/40 border-gray-500/30'
+                                        }`}>
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                {currentAbsence.type === 'vacation' ? <Palmtree size={24} className="text-purple-300" /> :
+                                                    currentAbsence.type === 'sick' ? <Stethoscope size={24} className="text-red-300" /> :
+                                                        currentAbsence.type === 'holiday' ? <CalendarHeart size={24} className="text-blue-300" /> :
+                                                            currentAbsence.type === 'sick_child' ? <UserCheck size={24} className="text-orange-300" /> :
+                                                                currentAbsence.type === 'sick_pay' ? <Stethoscope size={24} className="text-rose-300" /> :
+                                                                    <Ban size={24} className="text-gray-300" />}
+                                                <div>
+                                                    <h4 className={`font-bold ${currentAbsence.type === 'vacation' ? 'text-purple-100' :
+                                                        currentAbsence.type === 'sick' ? 'text-red-100' :
+                                                            currentAbsence.type === 'holiday' ? 'text-blue-100' :
+                                                                currentAbsence.type === 'sick_child' ? 'text-orange-100' :
+                                                                    currentAbsence.type === 'sick_pay' ? 'text-rose-100' :
+                                                                        'text-gray-100'
+                                                        }`}>
+                                                        {currentAbsence.type === 'vacation' ? 'Urlaub' :
+                                                            currentAbsence.type === 'sick' ? 'Krank' :
+                                                                currentAbsence.type === 'holiday' ? 'Feiertag' :
+                                                                    currentAbsence.type === 'sick_child' ? 'Kind krank' :
+                                                                        currentAbsence.type === 'sick_pay' ? 'Krankengeld' :
+                                                                            'Unbezahlt'}
+                                                    </h4>
+                                                </div>
                                             </div>
+                                            <button onClick={() => handleRemoveAbsence(currentAbsence.id)} className="px-3 py-2 bg-white/10 hover:bg-red-500/20 hover:text-red-200 border border-white/10 hover:border-red-500/30 rounded-lg text-xs font-bold transition-all flex items-center gap-2">
+                                                <Trash2 size={14} /> Löschen
+                                            </button>
                                         </div>
-                                        <button onClick={() => handleRemoveAbsence(currentAbsence.id)} className="px-3 py-2 bg-white/10 hover:bg-red-500/20 hover:text-red-200 border border-white/10 hover:border-red-500/30 rounded-lg text-xs font-bold transition-all flex items-center gap-2">
-                                            <Trash2 size={14} /> Löschen
-                                        </button>
-                                    </div>
-                                    {currentAbsence.note && <div className="text-xs text-white/50 italic mt-1 border-t border-white/5 pt-2">"{currentAbsence.note}"</div>}
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
-                                <button onClick={() => handleAddAbsence('vacation')} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-purple-500/30 bg-purple-900/20 hover:bg-purple-900/40 transition-all text-purple-100 font-bold text-xs"><Palmtree size={20} /> Urlaub</button>
-                                <button onClick={() => handleAddAbsence('sick')} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-red-500/30 bg-red-900/20 hover:bg-red-900/40 transition-all text-red-100 font-bold text-xs"><Stethoscope size={20} /> Krank</button>
-                                <button onClick={() => handleAddAbsence('holiday')} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-blue-500/30 bg-blue-900/20 hover:bg-blue-900/40 transition-all text-blue-100 font-bold text-xs"><CalendarHeart size={20} /> Feiertag</button>
-                                <button onClick={() => { if (!unpaidReason) return; handleAddAbsence('unpaid'); }} disabled={!unpaidReason} className="w-full h-full flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-500/30 bg-gray-800/40 hover:bg-gray-800/60 transition-all text-gray-200 font-bold text-xs disabled:opacity-50"><Ban size={20} /> Unbezahlt</button>
-                                <button onClick={() => handleAddAbsence('sick_child')} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-orange-500/30 bg-orange-900/20 hover:bg-orange-900/40 transition-all text-orange-100 font-bold text-xs"><UserCheck size={20} /> Kind krank</button>
-                                <button onClick={() => handleAddAbsence('sick_pay')} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-rose-500/30 bg-rose-900/20 hover:bg-rose-900/40 transition-all text-rose-100 font-bold text-xs"><Stethoscope size={20} /> Krankengeld</button>
-                                {/* NEW Overtime Reduction Button */}
-                                <button onClick={() => {
-                                    setNewEntryForm({
-                                        client_name: 'Überstundenabbau',
-                                        hours: (currentUser?.target_hours?.[selectedDay?.getDay() || 0] || 0).toString(),
-                                        start_time: '',
-                                        end_time: '',
-                                        type: 'overtime_reduction'
-                                    });
-                                }} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-pink-500/30 bg-pink-900/20 hover:bg-pink-900/40 transition-all text-pink-100 font-bold text-xs">
-                                    <TrendingDown size={20} /> Überstd. Abbau
-                                </button>
-
-                                <div className="col-span-2 md:col-span-5 mt-2">
-                                    <input type="text" placeholder="Begründung für Unbezahlt (z.B. Kinderkrank)..." value={unpaidReason} onChange={e => setUnpaidReason(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-white/30 focus:border-gray-500/50 outline-none" />
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="w-full h-px bg-white/10 mb-6" />
-
-                        {/* 1. ATTENDANCE SECTION (Once) */}
-                        {modalAttendanceStats && (
-                            <div className="mb-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                <div className="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                                    <UserCheck size={14} /> Anwesenheit
-                                </div>
-                                <div className="bg-cyan-900/10 border border-cyan-500/20 rounded-xl p-3 flex justify-between items-center">
-                                    <div className="text-center">
-                                        <div className="text-[10px] text-cyan-200/50 uppercase font-bold mb-1">Zeitraum</div>
-                                        <div className="text-lg font-mono font-bold text-cyan-100">{modalAttendanceStats.attendanceStr}</div>
-                                    </div>
-                                    <div className="h-8 w-px bg-cyan-500/20"></div>
-                                    <div className="text-center">
-                                        <div className="text-[10px] text-cyan-200/50 uppercase font-bold mb-1">Pause</div>
-                                        <div className="text-lg font-mono font-bold text-cyan-100">{modalAttendanceStats.pauseStr}</div>
-                                    </div>
-                                    <div className="h-8 w-px bg-cyan-500/20"></div>
-                                    <div className="text-center">
-                                        <div className="text-[10px] text-cyan-200/50 uppercase font-bold mb-1">Netto</div>
-                                        <div className="text-xl font-mono font-bold text-cyan-300">{modalAttendanceStats.nettoStr}</div>
+                                        {currentAbsence.note && <div className="text-xs text-white/50 italic mt-1 border-t border-white/5 pt-2">"{currentAbsence.note}"</div>}
                                     </div>
                                 </div>
-                            </div>
-                        )}
+                            ) : (
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
+                                    <button onClick={() => handleAddAbsence('vacation')} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-purple-500/30 bg-purple-900/20 hover:bg-purple-900/40 transition-all text-purple-100 font-bold text-xs"><Palmtree size={20} /> Urlaub</button>
+                                    <button onClick={() => handleAddAbsence('sick')} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-red-500/30 bg-red-900/20 hover:bg-red-900/40 transition-all text-red-100 font-bold text-xs"><Stethoscope size={20} /> Krank</button>
+                                    <button onClick={() => handleAddAbsence('holiday')} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-blue-500/30 bg-blue-900/20 hover:bg-blue-900/40 transition-all text-blue-100 font-bold text-xs"><CalendarHeart size={20} /> Feiertag</button>
+                                    <button onClick={() => { if (!unpaidReason) return; handleAddAbsence('unpaid'); }} disabled={!unpaidReason} className="w-full h-full flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-500/30 bg-gray-800/40 hover:bg-gray-800/60 transition-all text-gray-200 font-bold text-xs disabled:opacity-50"><Ban size={20} /> Unbezahlt</button>
+                                    <button onClick={() => handleAddAbsence('sick_child')} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-orange-500/30 bg-orange-900/20 hover:bg-orange-900/40 transition-all text-orange-100 font-bold text-xs"><UserCheck size={20} /> Kind krank</button>
+                                    <button onClick={() => handleAddAbsence('sick_pay')} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-rose-500/30 bg-rose-900/20 hover:bg-rose-900/40 transition-all text-rose-100 font-bold text-xs"><Stethoscope size={20} /> Krankengeld</button>
+                                    {/* NEW Overtime Reduction Button */}
+                                    <button onClick={() => {
+                                        setNewEntryForm({
+                                            client_name: 'Überstundenabbau',
+                                            hours: (currentUser?.target_hours?.[selectedDay?.getDay() || 0] || 0).toString(),
+                                            start_time: '',
+                                            end_time: '',
+                                            type: 'overtime_reduction',
+                                            surcharge: 0
+                                        });
+                                    }} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-pink-500/30 bg-pink-900/20 hover:bg-pink-900/40 transition-all text-pink-100 font-bold text-xs">
+                                        <TrendingDown size={20} /> Überstd. Abbau
+                                    </button>
 
-                        <div className="space-y-4 mb-8">
-                            <h4 className="text-xs uppercase font-bold text-white/50 tracking-wider">Arbeits-Einträge</h4>
-                            {modalEntries.length === 0 && (
-                                <div className="text-center py-6 bg-white/5 rounded-xl border border-white/5 border-dashed">
-                                    <p className="text-white/30 text-sm italic">Keine Einträge für diesen Tag.</p>
+                                    <div className="col-span-2 md:col-span-5 mt-2">
+                                        <input type="text" placeholder="Begründung für Unbezahlt (z.B. Kinderkrank)..." value={unpaidReason} onChange={e => setUnpaidReason(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-white/30 focus:border-gray-500/50 outline-none" />
+                                    </div>
                                 </div>
                             )}
-                            {modalEntries.map(entry => (
-                                <div key={entry.id} className="bg-white/5 p-4 rounded-xl border border-white/10 transition-colors hover:bg-white/10">
-                                    {editingEntry?.id === entry.id ? (
-                                        <div className="space-y-3 animate-in fade-in duration-200">
-                                            <div className="grid grid-cols-3 gap-3">
-                                                <div className="col-span-2">
-                                                    <label className="text-[10px] text-white/40 uppercase font-bold mb-1 block">Beschreibung</label>
-                                                    <GlassInput type="text" value={editForm.client_name} onChange={e => setEditForm({ ...editForm, client_name: e.target.value })} className="!py-2 !text-sm" />
-                                                </div>
-                                                <div>
-                                                    <label className="text-[10px] text-white/40 uppercase font-bold mb-1 block">Stunden</label>
-                                                    <GlassInput type="number" value={editForm.hours} onChange={e => setEditForm({ ...editForm, hours: e.target.value })} className="!py-2 !text-sm text-center" />
-                                                </div>
-                                            </div>
-                                            <div className="flex justify-end gap-2 pt-2">
-                                                <button onClick={() => setEditingEntry(null)} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors">Abbrechen</button>
-                                                <button onClick={handleSaveEntryEdit} className="px-3 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold transition-colors flex items-center gap-2"><Save size={14} /> Speichern</button>
-                                            </div>
+
+                            <div className="w-full h-px bg-white/10 mb-6" />
+
+                            {/* 1. ATTENDANCE SECTION (Once) */}
+                            {modalAttendanceStats && (
+                                <div className="mb-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                    <div className="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                        <UserCheck size={14} /> Anwesenheit
+                                    </div>
+                                    <div className="bg-cyan-900/10 border border-cyan-500/20 rounded-xl p-3 flex justify-between items-center">
+                                        <div className="text-center">
+                                            <div className="text-[10px] text-cyan-200/50 uppercase font-bold mb-1">Zeitraum</div>
+                                            <div className="text-lg font-mono font-bold text-cyan-100">{modalAttendanceStats.attendanceStr}</div>
                                         </div>
-                                    ) : (
-                                        <div className="flex justify-between items-center">
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center border border-white/10 ${entry.type === 'break' ? 'bg-orange-500/20 text-orange-300' : entry.type === 'overtime_reduction' ? 'bg-pink-500/20 text-pink-300' : 'bg-teal-500/20 text-teal-300'}`}>
-                                                    {entry.type === 'break' ? <Coffee size={18} /> : entry.type === 'overtime_reduction' ? <TrendingDown size={18} /> : <Briefcase size={18} />}
+                                        <div className="h-8 w-px bg-cyan-500/20"></div>
+                                        <div className="text-center">
+                                            <div className="text-[10px] text-cyan-200/50 uppercase font-bold mb-1">Pause</div>
+                                            <div className="text-lg font-mono font-bold text-cyan-100">{modalAttendanceStats.pauseStr}</div>
+                                        </div>
+                                        <div className="h-8 w-px bg-cyan-500/20"></div>
+                                        <div className="text-center">
+                                            <div className="text-[10px] text-cyan-200/50 uppercase font-bold mb-1">Netto</div>
+                                            <div className="text-xl font-mono font-bold text-cyan-300">{modalAttendanceStats.nettoStr}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="space-y-4 mb-8">
+                                <h4 className="text-xs uppercase font-bold text-white/50 tracking-wider">Arbeits-Einträge</h4>
+                                {modalEntries.length === 0 && (
+                                    <div className="text-center py-6 bg-white/5 rounded-xl border border-white/5 border-dashed">
+                                        <p className="text-white/30 text-sm italic">Keine Einträge für diesen Tag.</p>
+                                    </div>
+                                )}
+                                {modalEntries.map(entry => (
+                                    <div key={entry.id} className={`p-4 rounded-xl border transition-colors hover:bg-white/10 ${entry.type === 'emergency_service' ? 'bg-rose-500/10 border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.15)]' : 'bg-white/5 border-white/10'}`}>
+                                        {editingEntry?.id === entry.id ? (
+                                            <div className="space-y-3 animate-in fade-in duration-200">
+                                                <div className="grid grid-cols-3 gap-3">
+                                                    <div className="col-span-2">
+                                                        <label className="text-[10px] text-white/40 uppercase font-bold mb-1 block">Beschreibung</label>
+                                                        <GlassInput type="text" value={editForm.client_name} onChange={e => setEditForm({ ...editForm, client_name: e.target.value })} className="!py-2 !text-sm" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[10px] text-white/40 uppercase font-bold mb-1 block">Stunden</label>
+                                                        <GlassInput type="number" value={editForm.hours} onChange={e => setEditForm({ ...editForm, hours: e.target.value })} className="!py-2 !text-sm text-center" />
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-white font-bold text-sm">{entry.client_name}</p>
-                                                    <div className="flex items-center gap-2 text-white/40 text-xs font-mono mt-0.5">
-                                                        <span>{entry.start_time || '--:--'} - {entry.end_time || '--:--'}</span>
-                                                        <span className="w-1 h-1 rounded-full bg-white/20"></span>
-                                                        <span className="uppercase">{entry.type === 'overtime_reduction' ? 'Abbau' : entry.type}</span>
+                                                <div className="flex justify-end gap-2 pt-2">
+                                                    <button onClick={() => setEditingEntry(null)} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors">Abbrechen</button>
+                                                    <button onClick={handleSaveEntryEdit} className="px-3 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold transition-colors flex items-center gap-2"><Save size={14} /> Speichern</button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="flex justify-between items-center">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border border-white/10 ${entry.type === 'break' ? 'bg-orange-500/20 text-orange-300' : entry.type === 'overtime_reduction' ? 'bg-pink-500/20 text-pink-300' : entry.type === 'emergency_service' ? 'bg-rose-500/20 text-rose-300' : 'bg-teal-500/20 text-teal-300'}`}>
+                                                        {entry.type === 'break' ? <Coffee size={18} /> : entry.type === 'overtime_reduction' ? <TrendingDown size={18} /> : entry.type === 'emergency_service' ? <Siren size={18} /> : <Briefcase size={18} />}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-white font-bold text-sm">{entry.client_name}</p>
+                                                        <div className="flex items-center gap-2 text-white/40 text-xs font-mono mt-0.5">
+                                                            <span>{entry.start_time || '--:--'} - {entry.end_time || '--:--'}</span>
+                                                            <span className="w-1 h-1 rounded-full bg-white/20"></span>
+                                                            <span className="uppercase">{entry.type === 'overtime_reduction' ? 'Abbau' : entry.type === 'emergency_service' ? 'Notdienst' : entry.type}</span>
+                                                            {entry.type === 'emergency_service' && entry.surcharge && entry.surcharge > 0 && <span className="ml-2 text-rose-300 font-bold bg-rose-500/20 px-1.5 rounded text-[10px]">+{entry.surcharge}%</span>}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="text-right mr-2">
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="block font-mono font-bold text-white text-lg leading-none">
+                                                                {entry.type === 'emergency_service' && entry.surcharge
+                                                                    ? (entry.hours * (1 + entry.surcharge / 100)).toFixed(2)
+                                                                    : entry.hours.toFixed(2)}
+                                                            </span>
+                                                            {entry.type === 'emergency_service' && entry.surcharge && (
+                                                                <span className="text-[10px] text-white/50">{entry.hours.toFixed(2)} + {entry.surcharge}%</span>
+                                                            )}
+                                                        </div>
+                                                        <span className="text-[10px] text-white/30 uppercase mt-1">Std</span>
+                                                    </div>
+                                                    <div className="flex flex-col gap-1">
+                                                        <button onClick={() => { setEditingEntry(entry); setEditForm({ ...editForm, client_name: entry.client_name, hours: entry.hours.toString().replace('.', ','), start_time: entry.start_time || '', end_time: entry.end_time || '', note: entry.note || '' }) }} className="text-white/50 bg-white/5 border border-white/10 w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 hover:text-white transition-colors"><Edit2 size={14} /></button>
+                                                        <button onClick={() => deleteEntry(entry.id)} className="text-red-400/50 bg-red-500/5 border border-red-500/10 w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-500/20 hover:text-red-300 transition-colors"><Trash2 size={14} /></button>
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-3">
-                                                <div className="text-right mr-2">
-                                                    <span className="block font-mono font-bold text-white text-lg leading-none">{entry.hours.toFixed(2)}</span>
-                                                    <span className="text-[10px] text-white/30 uppercase">Std</span>
-                                                </div>
-                                                <div className="flex flex-col gap-1">
-                                                    <button onClick={() => { setEditingEntry(entry); setEditForm({ ...editForm, client_name: entry.client_name, hours: entry.hours.toString().replace('.', ','), start_time: entry.start_time || '', end_time: entry.end_time || '', note: entry.note || '' }) }} className="text-white/50 bg-white/5 border border-white/10 w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 hover:text-white transition-colors"><Edit2 size={14} /></button>
-                                                    <button onClick={() => deleteEntry(entry.id)} className="text-red-400/50 bg-red-500/5 border border-red-500/10 w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-500/20 hover:text-red-300 transition-colors"><Trash2 size={14} /></button>
-                                                </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="bg-white/5 p-5 rounded-2xl border border-white/10 shadow-inner">
+                                <h4 className="text-xs uppercase font-bold text-white/50 mb-4 tracking-wider flex items-center gap-2"><Plus size={14} className="text-teal-400" /> Neuer Eintrag</h4>
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div className="md:col-span-1 relative">
+                                            <select value={newEntryForm.type} onChange={e => setNewEntryForm({ ...newEntryForm, type: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 focus:ring-teal-500/50 transition-all cursor-pointer text-sm font-medium">
+                                                <option value="work" className="bg-gray-800 text-white">Projekt</option>
+                                                <option value="company" className="bg-gray-800 text-white">Firma</option>
+                                                <option value="office" className="bg-gray-800 text-white">Büro</option>
+                                                <option value="warehouse" className="bg-gray-800 text-white">Lager</option>
+                                                <option value="car" className="bg-gray-800 text-white">Auto</option>
+                                                <option value="overtime_reduction" className="bg-gray-800 text-pink-300">Gutstunden</option>
+                                                <option value="emergency_service" className="bg-gray-800 text-rose-300">Notdienst</option>
+                                            </select>
+                                            <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/50 pointer-events-none" />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <GlassInput type="text" placeholder={newEntryForm.type === 'work' ? "Projekt / Kunde" : "Beschreibung"} value={newEntryForm.client_name} onChange={e => setNewEntryForm({ ...newEntryForm, client_name: e.target.value })} className="w-full placeholder-white/30" />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <div className="relative group">
+                                            <label className="absolute -top-2 left-3 bg-[#1e2536] px-1 text-[10px] text-white/40 uppercase font-bold z-10 rounded">Von</label>
+                                            <GlassInput type="text" placeholder="HH:MM" value={newEntryForm.start_time} onChange={e => setNewEntryForm({ ...newEntryForm, start_time: e.target.value })} className="text-center font-mono" />
+                                        </div>
+                                        <div className="relative group">
+                                            <label className="absolute -top-2 left-3 bg-[#1e2536] px-1 text-[10px] text-white/40 uppercase font-bold z-10 rounded">Bis</label>
+                                            <GlassInput type="text" placeholder="HH:MM" value={newEntryForm.end_time} onChange={e => setNewEntryForm({ ...newEntryForm, end_time: e.target.value })} className="text-center font-mono" />
+                                        </div>
+                                        <div className="relative group">
+                                            <label className="absolute -top-2 right-3 bg-[#1e2536] px-1 text-[10px] text-teal-400 uppercase font-bold z-10 rounded">Std</label>
+                                            <GlassInput type="number" placeholder="0.00" value={newEntryForm.hours} onChange={e => setNewEntryForm({ ...newEntryForm, hours: e.target.value })} className="text-center font-mono font-bold text-teal-300" />
+                                        </div>
+                                    </div>
+                                    {newEntryForm.type === 'emergency_service' && (
+                                        <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 flex items-center justify-between">
+                                            <div className="flex items-center gap-2 text-rose-300">
+                                                <Percent size={16} />
+                                                <span className="text-xs uppercase font-bold">Zuschlag</span>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                {[0, 25, 50, 100].map(val => (
+                                                    <button
+                                                        key={val}
+                                                        onClick={() => setNewEntryForm({ ...newEntryForm, surcharge: val })}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono border transition-all ${(newEntryForm as any).surcharge === val
+                                                            ? 'bg-rose-500/20 text-rose-100 border-rose-500/50 shadow-[0_0_10px_rgba(244,63,94,0.2)]'
+                                                            : 'bg-white/5 text-white/30 border-white/5 hover:bg-white/10'
+                                                            }`}
+                                                    >
+                                                        {val}%
+                                                    </button>
+                                                ))}
                                             </div>
                                         </div>
                                     )}
+                                    <GlassButton onClick={handleAddEntry} className="w-full mt-2 shadow-lg shadow-teal-900/20">Eintrag hinzufügen</GlassButton>
                                 </div>
-                            ))}
-                        </div>
-
-                        <div className="bg-white/5 p-5 rounded-2xl border border-white/10 shadow-inner">
-                            <h4 className="text-xs uppercase font-bold text-white/50 mb-4 tracking-wider flex items-center gap-2"><Plus size={14} className="text-teal-400" /> Neuer Eintrag</h4>
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div className="md:col-span-1 relative">
-                                        <select value={newEntryForm.type} onChange={e => setNewEntryForm({ ...newEntryForm, type: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white appearance-none focus:outline-none focus:ring-2 focus:ring-teal-500/50 transition-all cursor-pointer text-sm font-medium">
-                                            <option value="work" className="bg-gray-800 text-white">Projekt</option>
-                                            <option value="company" className="bg-gray-800 text-white">Firma</option>
-                                            <option value="office" className="bg-gray-800 text-white">Büro</option>
-                                            <option value="warehouse" className="bg-gray-800 text-white">Lager</option>
-                                            <option value="car" className="bg-gray-800 text-white">Auto</option>
-                                            <option value="overtime_reduction" className="bg-gray-800 text-pink-300">Überstundenabbau</option>
-                                        </select>
-                                        <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/50 pointer-events-none" />
-                                    </div>
-                                    <div className="md:col-span-2">
-                                        <GlassInput type="text" placeholder={newEntryForm.type === 'work' ? "Projekt / Kunde" : "Beschreibung"} value={newEntryForm.client_name} onChange={e => setNewEntryForm({ ...newEntryForm, client_name: e.target.value })} className="w-full placeholder-white/30" />
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-3 gap-4">
-                                    <div className="relative group">
-                                        <label className="absolute -top-2 left-3 bg-[#1e2536] px-1 text-[10px] text-white/40 uppercase font-bold z-10 rounded">Von</label>
-                                        <GlassInput type="text" placeholder="HH:MM" value={newEntryForm.start_time} onChange={e => setNewEntryForm({ ...newEntryForm, start_time: e.target.value })} className="text-center font-mono" />
-                                    </div>
-                                    <div className="relative group">
-                                        <label className="absolute -top-2 left-3 bg-[#1e2536] px-1 text-[10px] text-white/40 uppercase font-bold z-10 rounded">Bis</label>
-                                        <GlassInput type="text" placeholder="HH:MM" value={newEntryForm.end_time} onChange={e => setNewEntryForm({ ...newEntryForm, end_time: e.target.value })} className="text-center font-mono" />
-                                    </div>
-                                    <div className="relative group">
-                                        <label className="absolute -top-2 right-3 bg-[#1e2536] px-1 text-[10px] text-teal-400 uppercase font-bold z-10 rounded">Std</label>
-                                        <GlassInput type="number" placeholder="0.00" value={newEntryForm.hours} onChange={e => setNewEntryForm({ ...newEntryForm, hours: e.target.value })} className="text-center font-mono font-bold text-teal-300" />
-                                    </div>
-                                </div>
-                                <GlassButton onClick={handleAddEntry} className="w-full mt-2 shadow-lg shadow-teal-900/20">Eintrag hinzufügen</GlassButton>
                             </div>
-                        </div>
-                    </GlassCard>
-                </div >
-            )}
+                        </GlassCard>
+                    </div >
+                )
+            }
 
             {/* Date Pickers */}
             {showAnalysisStartPicker && <GlassDatePicker value={analysisStart} onChange={setAnalysisStart} onClose={() => setShowAnalysisStartPicker(false)} />}

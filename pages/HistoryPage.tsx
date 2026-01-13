@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useTimeEntries, useSettings, useDailyLogs, useAbsences, getDailyTargetForDate, getLocalISOString } from '../services/dataService';
 import { GlassCard, GlassButton, GlassInput } from '../components/GlassCard';
-import { Trash2, FileDown, X, Edit2, Save, CalendarDays, Briefcase, Clock, ChevronLeft, ChevronRight, CheckCircle, Calendar, UserCheck, List, FileText, StickyNote, Coffee, Lock, Hourglass, Building2, Building, Warehouse, Car, Palmtree, Stethoscope, Ban, PartyPopper, TrendingDown, AlertTriangle, Check } from 'lucide-react';
+import { Trash2, FileDown, X, Edit2, Save, CalendarDays, Briefcase, Clock, ChevronLeft, ChevronRight, CheckCircle, Calendar, UserCheck, List, FileText, StickyNote, Coffee, Lock, Hourglass, Building2, Building, Warehouse, Car, Palmtree, Stethoscope, Ban, PartyPopper, TrendingDown, AlertTriangle, Check, Siren } from 'lucide-react';
 import GlassDatePicker from '../components/GlassDatePicker';
 import { TimeEntry, DailyLog, UserAbsence } from '../types';
 import { supabase } from '../services/supabaseClient';
@@ -287,6 +287,7 @@ const HistoryPage: React.FC = () => {
             case 'holiday': return <PartyPopper size={12} className="inline mr-1 mb-0.5" />;
             case 'unpaid': return <Ban size={12} className="inline mr-1 mb-0.5" />;
             case 'overtime_reduction': return <TrendingDown size={12} className="inline mr-1 mb-0.5" />;
+            case 'emergency_service': return <Siren size={12} className="inline mr-1 mb-0.5" />;
             default: return null;
         }
     };
@@ -301,6 +302,7 @@ const HistoryPage: React.FC = () => {
                 default: return 'border-white/10 bg-white/5';
             }
         }
+        if (entry.type === 'emergency_service') return 'border-rose-500/20 bg-rose-900/10 text-rose-200';
         if (entry.submitted) return 'border-emerald-500/20 bg-emerald-900/10';
         switch (entry.type) {
             case 'break': return 'border-orange-500/20 bg-orange-900/10 text-orange-200';
@@ -329,7 +331,9 @@ const HistoryPage: React.FC = () => {
             return;
         }
 
-        const idsToMark = filteredEntries.map(e => e.id);
+        const idsToMark = filteredEntries
+            .filter(e => !e.isAbsence && !e.id.startsWith('virtual-'))
+            .map(e => e.id);
         await markAsSubmitted(idsToMark);
         setShowPdfModal(false);
     };

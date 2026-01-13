@@ -43,7 +43,7 @@ const TYPE_LABELS: Record<string, string> = {
     warehouse: 'Lager',
     car: 'Auto / Fahrt',
     break: 'Pause',
-    overtime_reduction: 'Überstundenabbau'
+    overtime_reduction: 'Gutstunden'
 };
 
 const AdvancedAnalysisPage: React.FC = () => {

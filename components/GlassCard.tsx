@@ -8,7 +8,7 @@ interface GlassCardProps {
 
 export const GlassCard: React.FC<GlassCardProps> = ({ children, className = "", onClick }) => {
   return (
-    <div 
+    <div
       onClick={onClick}
       className={`bg-white/10 backdrop-blur-lg border border-white/20 shadow-[0_8px_32px_0_rgba(31,38,135,0.37)] rounded-2xl p-4 ${className}`}
     >
@@ -20,7 +20,7 @@ export const GlassCard: React.FC<GlassCardProps> = ({ children, className = "", 
 export const GlassInput: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => (
   <input
     {...props}
-    className={`w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-transparent transition-all backdrop-blur-sm ${props.className || ''}`}
+    className={`w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-transparent transition-all backdrop-blur-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5 ${props.className || ''}`}
   />
 );
 
@@ -32,7 +32,7 @@ export const GlassButton: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>
   };
 
   return (
-    <button 
+    <button
       className={`${baseStyle} ${variantStyles[variant]} ${className || ''}`}
       {...props}
     >

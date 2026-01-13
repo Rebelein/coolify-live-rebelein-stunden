@@ -2,7 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from './supabaseClient';
 import { TimeEntry, DailyLog, UserAbsence, UserSettings } from '../types';
-import { formatDuration } from './utils/timeUtils';
+import { formatDuration, calculateDurationInMinutes, formatMinutesToDecimal } from './utils/timeUtils';
 import { getLocalISOString, getDailyTargetForDate } from './dataService';
 
 // --- Types ---
@@ -328,12 +328,27 @@ export const generateProjectPdfBlob = (data: ExportData, startDate: string, endD
         doc.text(`Monteur: ${userDisplayName}`, offsetX + marginX, startY);
         doc.text(formattedDate, offsetX + halfWidth - marginX, startY, { align: 'right' });
 
-        const tableData = dayEntries.map(e => [
-            e.start_time || '-',
-            e.end_time || '-',
-            e.client_name,
-            e.hours.toFixed(2).replace('.', ',')
-        ]);
+        const tableData = dayEntries.map(e => {
+            let durationMin = calculateDurationInMinutes(e.start_time || '', e.end_time || '', 0);
+            let hoursStr = formatMinutesToDecimal(durationMin);
+            let label = e.client_name;
+
+            if (e.type === 'emergency_service' && e.surcharge) {
+                const totalMin = durationMin * (1 + e.surcharge / 100);
+                hoursStr = formatMinutesToDecimal(totalMin);
+                label = `Notdienst / ${e.client_name} (+${e.surcharge}%)`;
+                // Note: We can't easily modify the note displayed by didDrawCell without mutating e.
+                // But we can append to label if we want basics shown:
+                // label += ` [${e.hours}h + ${e.surcharge}%]`; 
+            }
+
+            return [
+                e.start_time || '-', // Von
+                e.end_time || '-',   // Bis
+                label,
+                hoursStr
+            ];
+        });
 
         const minRows = 12;
         for (let i = tableData.length; i < minRows; i++) tableData.push(['', '', '', '']);
@@ -346,12 +361,12 @@ export const generateProjectPdfBlob = (data: ExportData, startDate: string, endD
             body: tableData,
             theme: 'grid',
             styles: { fontSize: 9, lineColor: [0, 0, 0], lineWidth: 0.1, textColor: [0, 0, 0], cellPadding: 1.5 },
-            headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold', lineWidth: 0.2, lineColor: [0, 0, 0] },
+            headStyles: { fillColor: [50, 50, 50], textColor: [255, 255, 255], fontStyle: 'bold', lineWidth: 0.2, lineColor: [0, 0, 0] },
             columnStyles: {
-                0: { cellWidth: 15, halign: 'center' },
-                1: { cellWidth: 15, halign: 'center' },
+                0: { cellWidth: 20, halign: 'center' }, // Von
+                1: { cellWidth: 20, halign: 'center' }, // Bis
                 2: { cellWidth: 'auto' },
-                3: { cellWidth: 15, halign: 'right' }
+                3: { cellWidth: 20, halign: 'right' }
             },
             didParseCell: function (data) {
                 const cellText = Array.isArray(data.cell.raw) ? data.cell.raw.join('') : String(data.cell.raw);
@@ -384,14 +399,21 @@ export const generateProjectPdfBlob = (data: ExportData, startDate: string, endD
 
         // @ts-ignore
         const finalY = doc.lastAutoTable.finalY;
-        const totalHours = dayEntries.reduce((acc, curr) => (curr.type === 'break' ? acc : acc + curr.hours), 0);
+        const totalMinutes = dayEntries.reduce((acc, curr) => {
+            if (curr.type === 'break') return acc;
+            let dur = calculateDurationInMinutes(curr.start_time || '', curr.end_time || '', 0);
+            if (curr.type === 'emergency_service' && curr.surcharge) {
+                dur = dur * (1 + curr.surcharge / 100);
+            }
+            return acc + dur;
+        }, 0);
 
         doc.setLineWidth(0.3);
         doc.rect(offsetX + marginX, finalY, contentWidth, 8);
         doc.setFont("helvetica", "normal");
         doc.text("Gesamtstunden (Verrechenbar)", offsetX + marginX + 2, finalY + 5.5);
         doc.setFont("helvetica", "bold");
-        doc.text(totalHours.toFixed(2).replace('.', ','), offsetX + contentWidth - 2, finalY + 5.5, { align: 'right' });
+        doc.text(formatMinutesToDecimal(totalMinutes), offsetX + contentWidth - 2, finalY + 5.5, { align: 'right' });
     };
 
     for (let i = 0; i < sortedDates.length; i += 2) {
@@ -586,7 +608,12 @@ export const generateMonthlyReportPdfBlob = (data: ExportData, startDate: string
         // Actuals: Projects + Credits
         // INCLUDE overtime_reduction to match App "Project Hours"
         const dayEntries = entries.filter(e => e.date === dateStr && e.type !== 'break' && !absenceTypes.includes(e.type || ''));
-        const dayHours = dayEntries.reduce((sum, e) => sum + e.hours, 0);
+        const dayHours = dayEntries.reduce((sum, e) => {
+            if (e.type === 'emergency_service' && e.surcharge) {
+                return sum + (e.hours * (1 + e.surcharge / 100));
+            }
+            return sum + e.hours;
+        }, 0);
         const credits = calculateCredits(dateStr);
 
         monthlyActual += (dayHours + credits);
@@ -754,8 +781,21 @@ export const generateMonthlyReportPdfBlob = (data: ExportData, startDate: string
             }]);
         }
 
-        // Calculate Day Total for Header
-        const dayTotal = dayItems.reduce((sum, item) => item.type !== 'break' ? sum + item.hours : sum, 0);
+        // Calculate Day Total for Header (using minutes)
+        const dayTotalMinutes = dayItems.reduce((sum: number, item: any) => {
+            if (item.type !== 'break' && !item.isAbsence) {
+                let duration = calculateDurationInMinutes(item.start_time || '', item.end_time || '', 0);
+                if (item.type === 'emergency_service' && item.surcharge) {
+                    duration = duration * (1 + item.surcharge / 100);
+                }
+                return sum + duration;
+            }
+            if (item.isAbsence && item.hours) {
+                // For absences (vacation etc.) we take hours * 60
+                return sum + (item.hours * 60);
+            }
+            return sum;
+        }, 0);
 
         // Header Row
         tableBody.push([{
@@ -763,7 +803,7 @@ export const generateMonthlyReportPdfBlob = (data: ExportData, startDate: string
             colSpan: 2,
             styles: { fillColor: [240, 240, 240], fontStyle: 'bold', lineWidth: { top: 0.1, right: 0.1, bottom: 0.1, left: 0.1 } }
         }, {
-            content: dayTotal > 0 ? dayTotal.toFixed(2).replace('.', ',') : '-',
+            content: dayTotalMinutes > 0 ? formatMinutesToDecimal(dayTotalMinutes) : '-',
             styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right', lineWidth: { top: 0.1, right: 0.1, bottom: 0.1, left: 0.1 } }
         }, {
             content: '',
@@ -771,13 +811,38 @@ export const generateMonthlyReportPdfBlob = (data: ExportData, startDate: string
         }]);
 
         dayItems.forEach((item) => {
-            const label = item.client_name + (item.type === 'break' ? ' (Pause)' : '');
-            const hoursStr = item.hours > 0 ? item.hours.toFixed(2).replace('.', ',') : '-';
+            const isBreak = item.type === 'break';
+            let label = item.client_name;
+            let hoursStr = '-';
+            let durationMin = 0;
+
+            if (isBreak) {
+                // Calculate break duration
+                durationMin = calculateDurationInMinutes(item.start_time || '', item.end_time || '', 0);
+                label += ` (${durationMin} Min Pause)`;
+                hoursStr = '-'; // Explicitly show - for pause hours as requested
+            } else if (item.isAbsence) {
+                // Absence hours
+                hoursStr = formatDuration(item.hours);
+            } else {
+                // Work entry
+                durationMin = calculateDurationInMinutes(item.start_time || '', item.end_time || '', 0);
+                if (item.type === 'emergency_service' && item.surcharge) {
+                    const totalMin = durationMin * (1 + item.surcharge / 100);
+                    hoursStr = `${formatMinutesToDecimal(totalMin)}`;
+                    label = `Notdienst / ${item.client_name} (+${item.surcharge}%)`;
+                    // Show calculation in note
+                    const noteAddition = `Basis: ${formatMinutesToDecimal(durationMin)}h + ${item.surcharge}%`;
+                    item.note = item.note ? `${item.note} | ${noteAddition}` : noteAddition;
+                } else {
+                    hoursStr = formatMinutesToDecimal(durationMin);
+                }
+            }
 
             tableBody.push([
-                item.start_time ? `${item.start_time}${item.end_time ? ' - ' + item.end_time : ''}` : '', // Time Range Column (New)
+                item.start_time ? `${item.start_time}${item.end_time ? ' - ' + item.end_time : ''}` : '', // Time Range Column
                 label,
-                hoursStr,
+                { content: hoursStr, styles: { halign: 'right', textColor: isBreak ? [150, 150, 150] : [0, 0, 0] } },
                 item.note || ''
             ]);
         });
@@ -789,11 +854,11 @@ export const generateMonthlyReportPdfBlob = (data: ExportData, startDate: string
         head: [['Zeit', 'Projekt / Tätigkeit', 'Std', 'Notiz']],
         body: tableBody,
         theme: 'grid',
-        headStyles: { fillColor: [55, 65, 81], textColor: [255, 255, 255], fontStyle: 'bold' },
+        headStyles: { fillColor: [41, 128, 185], textColor: [255, 255, 255], fontStyle: 'bold' },
         columnStyles: {
-            0: { cellWidth: 25 }, // Time
+            0: { cellWidth: 30 }, // Zeit
             1: { cellWidth: 'auto' }, // Project
-            2: { cellWidth: 15, halign: 'right' }, // Hours
+            2: { cellWidth: 20, halign: 'right' }, // Hours
             3: { cellWidth: 50, fontStyle: 'italic', textColor: [100, 100, 100] } // Note
         },
     });
